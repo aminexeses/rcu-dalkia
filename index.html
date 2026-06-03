@@ -408,7 +408,7 @@ footer{
 </footer>
 
 <script>
-var API_URL  = "https://script.google.com/a/macros/dalkia.fr/s/AKfycbzjeBY86z85NiGFiClTFdVpslnAETaU-yYZLkrl9PStLpB2XjCpCMaTnkaldB--KjseHw/exec";
+var API_URL  = "https://script.google.com/macros/s/AKfycbzjeBY86z85NiGFiClTFdVpslnAETaU-yYZLkrl9PStLpB2XjCpCMaTnkaldB--KjseHw/exec";
 var USE_DEMO = false;
 
 var COLORS = ["#E8520A","#1A2B6B","#16A34A","#D97706","#7C3AED"];
@@ -685,8 +685,22 @@ function renderDemandes(data){
 }
 
 async function api(a){
-  try{var r=await fetch(API_URL+"?action="+a,{mode:"cors"});return await r.json();}
-  catch(e){return{error:e.message};}
+  // Tentative 1 : fetch direct (fonctionne depuis un serveur web)
+  try{
+    var r=await fetch(API_URL+"?action="+a,{mode:"cors"});
+    if(r.ok) return await r.json();
+  }catch(e1){}
+
+  // Tentative 2 : via un proxy CORS public (fonctionne depuis file://)
+  try{
+    var proxy="https://corsproxy.io/?"+encodeURIComponent(API_URL+"?action="+a);
+    var r2=await fetch(proxy);
+    if(r2.ok) return await r2.json();
+  }catch(e2){}
+
+  // Fallback démo si les deux échouent
+  console.warn("API inaccessible - mode démo activé");
+  return DEMO[a.split("&")[0]]||{error:"Données indisponibles"};
 }
 function errBox(msg){return"<div class='err'><h3>Données indisponibles</h3><p>"+msg+"</p></div>";}
 function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
