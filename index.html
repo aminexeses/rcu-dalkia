@@ -488,28 +488,62 @@ document.addEventListener("DOMContentLoaded",function(){
 });
 
 async function init(){
-  var s=USE_DEMO?DEMO.semaines:await api("semaines");
-  var st=USE_DEMO?DEMO.stats:await api("stats");
-  var all=s.semaines||[];
-  currentSem=currentSem||s.semaineCourante;
-  var sel=document.getElementById("semSelect");
-  sel.innerHTML=all.map(function(x){
-    return"<option value='"+x+"'"+(x===currentSem?" selected":"")+">"+x+"</option>";
+  // Charger les semaines
+  var s = USE_DEMO ? DEMO.semaines : await api("semaines");
+  var all = s.semaines || [];
+  currentSem = currentSem || s.semaineCourante;
+  
+  var sel = document.getElementById("semSelect");
+  sel.innerHTML = all.map(function(x){
+    return "<option value='"+x+"'"+(x===currentSem?" selected":"")+">"+x+"</option>";
   }).join("");
-  renderKPIs(st);
+
+  // Charger le planning pour calculer les KPIs
+  var planData = USE_DEMO ? DEMO.planning : await api("planning&semaine="+currentSem);
+  var demData  = USE_DEMO ? DEMO.demandes : await api("demandes");
+  
+  // Calculer les stats depuis les données planning
+  calculerEtAfficherKPIs(planData, demData, currentSem);
+  
   renderContent();
 }
 
-function renderKPIs(s){
-  var p=s.planning;
-  document.getElementById("kpiTotal").textContent=p.totalTaches;
-  document.getElementById("kpiValide").textContent=p.validees;
-  document.getElementById("kpiTaux").textContent=p.tauxValidation+"%";
-  document.getElementById("kpiMoy").textContent=p.avancementMoyen+"%";
-  document.getElementById("kpiDem").textContent=s.demandes.enCours;
-  var tc=document.getElementById("kpiTauxCard");
-  tc.className="kpi "+(p.tauxValidation>=80?"k-green":p.tauxValidation>=50?"k-yellow":"k-red");
+function calculerEtAfficherKPIs(planData, demData, sem) {
+  try {
+    var sd = ((planData||{}).semaines||{})[sem]||{};
+    var totalT=0, valides=0, sommePct=0, nbPct=0;
+    
+    Object.keys(sd).forEach(function(jour){
+      (sd[jour]||[]).forEach(function(t){
+        if(!t.ferie){
+          totalT++;
+          if(t.valide) valides++;
+          sommePct += (t.avancement||0);
+          nbPct++;
+        }
+      });
+    });
+    
+    var taux = totalT>0 ? Math.round(valides/totalT*100) : 0;
+    var moy  = nbPct>0  ? Math.round(sommePct/nbPct)    : 0;
+    var demandesEnCours = ((demData||{}).demandes||[]).filter(function(d){
+      return (d.avancement||0) < 100;
+    }).length;
+    
+    document.getElementById("kpiTotal").textContent  = totalT;
+    document.getElementById("kpiValide").textContent = valides;
+    document.getElementById("kpiTaux").textContent   = taux + "%";
+    document.getElementById("kpiMoy").textContent    = moy + "%";
+    document.getElementById("kpiDem").textContent    = demandesEnCours;
+    
+    var tc = document.getElementById("kpiTauxCard");
+    tc.className = "kpi " + (taux>=80?"k-green":taux>=50?"k-yellow":"k-red");
+  } catch(e) {
+    console.warn("KPIs erreur:", e);
+  }
 }
+
+// renderKPIs remplacé par calculerEtAfficherKPIs
 
 function showTab(t){
   currentTab=t;
@@ -524,6 +558,13 @@ function chargerSemaine(s){currentSem=s;renderContent();}
 async function renderContent(){
   var m=document.getElementById("main");
   m.innerHTML="<div class='loading'><div class='spin'></div><div class='load-txt'>Chargement…</div></div>";
+  
+  // S'assurer que currentSem est défini
+  if(!currentSem){
+    var sel=document.getElementById("semSelect");
+    currentSem=sel.value||"";
+  }
+  
   if(currentTab==="planning"||currentTab==="equipe"){
     var d=USE_DEMO?DEMO.planning:await api("planning&semaine="+currentSem);
     if(currentTab==="planning")renderPlanning(d);else renderEquipe(d);
@@ -535,10 +576,13 @@ async function renderContent(){
 
 function renderPlanning(data){
   var m=document.getElementById("main");
-  var sem=data.semaineCourante||currentSem;
-  var sd=(data.semaines||{})[sem]||{};
+  var sem=data.semaineCourante||currentSem||"";
+  var semaines=data.semaines||{};
+  // Si la semaine demandée n'existe pas, prendre la première disponible
+  if(!semaines[sem]){sem=Object.keys(semaines)[0]||sem;}
+  var sd=semaines[sem]||{};
   var jours=Object.keys(sd);
-  if(!jours.length){m.innerHTML=errBox("Aucune tâche pour "+sem+".");return;}
+  if(!jours.length){m.innerHTML=errBox("Aucune tâche pour "+sem+". Vérifiez que le planning est rempli dans Google Sheets.");return;}
 
   var tot=0,val=0;
   jours.forEach(function(j){sd[j].forEach(function(t){if(!t.ferie){tot++;if(t.valide)val++;}});});
