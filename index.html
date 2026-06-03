@@ -488,25 +488,39 @@ document.addEventListener("DOMContentLoaded",function(){
 });
 
 async function init(){
-  // Charger les semaines
+  // 1. Charger les semaines disponibles
   var s = USE_DEMO ? DEMO.semaines : await api("semaines");
-  var all = s.semaines || [];
-  currentSem = currentSem || s.semaineCourante;
+  var allSemaines = s.semaines || [];
   
-  var sel = document.getElementById("semSelect");
-  sel.innerHTML = all.map(function(x){
-    return "<option value='"+x+"'"+(x===currentSem?" selected":"")+">"+x+"</option>";
-  }).join("");
+  // Semaine courante = celle retournée par l'API
+  if (!currentSem || currentSem === "") {
+    currentSem = s.semaineCourante || (allSemaines[allSemaines.length-1] || "");
+  }
 
-  // Charger le planning pour calculer les KPIs
-  var planData = USE_DEMO ? DEMO.planning : await api("planning&semaine="+currentSem);
-  var demData  = USE_DEMO ? DEMO.demandes : await api("demandes");
-  
-  // Calculer les stats depuis les données planning
+  // 2. Peupler le sélecteur
+  var sel = document.getElementById("semSelect");
+  if (allSemaines.length > 0) {
+    sel.innerHTML = allSemaines.map(function(x){
+      return "<option value='"+x+"'"+(x===currentSem?" selected":"")+">"+x+"</option>";
+    }).join("");
+    sel.value = currentSem;
+  }
+
+  // 3. Charger planning + demandes en parallèle
+  var results = await Promise.all([
+    USE_DEMO ? Promise.resolve(DEMO.planning) : api("planning&semaine="+currentSem),
+    USE_DEMO ? Promise.resolve(DEMO.demandes) : api("demandes")
+  ]);
+  var planData = results[0];
+  var demData  = results[1];
+
+  // 4. Calculer et afficher les KPIs
   calculerEtAfficherKPIs(planData, demData, currentSem);
-  
-  renderContent();
+
+  // 5. Afficher le contenu de l'onglet actif
+  renderContentFromData(planData, demData);
 }
+
 
 function calculerEtAfficherKPIs(planData, demData, sem) {
   try {
@@ -553,30 +567,36 @@ function showTab(t){
   });
   renderContent();
 }
-function chargerSemaine(s){currentSem=s;renderContent();}
+function chargerSemaine(s){
+  if(s && s !== currentSem){
+    currentSem = s;
+    renderContent();
+  }
+}
 
 async function renderContent(){
   var m=document.getElementById("main");
   m.innerHTML="<div class='loading'><div class='spin'></div><div class='load-txt'>Chargement…</div></div>";
-  
-  // S'assurer que currentSem est défini
-  if(!currentSem){
-    var sel=document.getElementById("semSelect");
-    currentSem=sel.value||"";
-  }
-  
   if(currentTab==="planning"||currentTab==="equipe"){
     var d=USE_DEMO?DEMO.planning:await api("planning&semaine="+currentSem);
-    if(currentTab==="planning")renderPlanning(d);else renderEquipe(d);
+    renderContentFromData(d, null);
   }else{
     var d=USE_DEMO?DEMO.demandes:await api("demandes");
     renderDemandes(d);
   }
 }
 
+function renderContentFromData(planData, demData){
+  var m=document.getElementById("main");
+  if(!m) return;
+  if(currentTab==="planning")      renderPlanning(planData);
+  else if(currentTab==="equipe")   renderEquipe(planData);
+  else if(demData)                 renderDemandes(demData);
+}
+
 function renderPlanning(data){
   var m=document.getElementById("main");
-  var sem=data.semaineCourante||currentSem||"";
+  var sem=currentSem||data.semaineCourante||"";
   var semaines=data.semaines||{};
   // Si la semaine demandée n'existe pas, prendre la première disponible
   if(!semaines[sem]){sem=Object.keys(semaines)[0]||sem;}
